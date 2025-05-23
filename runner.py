@@ -2,40 +2,83 @@ import os
 import sys
 import tempfile
 import subprocess
+import json
+from typing import Any
 
-from dotenv import load_dotenv
-load_dotenv()
+import re
+
+def replace_libname(code: str) -> str:
+    # playwright. → patchright.
+    code = code.replace("playwright.", "patchright.")
+    # import playwright → import patchright
+    code = re.sub(r'\bimport\s+playwright\b', 'import patchright', code)
+    # from playwright → from patchright
+    code = re.sub(r'\bfrom\s+playwright\b', 'from patchright', code)
+    return code
 
 
-def run_python_script(script_path):
-    # Patch için dizin ayarla
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    env = os.environ.copy()
-    env["PYTHONPATH"] = script_dir + os.pathsep + env.get("PYTHONPATH", "")
+def read_injectable_code():
+    inject_folder = os.path.join(os.path.dirname(__file__), "inject")
+    header, footer = "", ""
+    header_path = os.path.join(inject_folder, "header.py")
+    footer_path = os.path.join(inject_folder, "footer.py")
 
-    # Script dosyasını oku
-    with open(script_path, "r", encoding="utf-8") as f:
-        script_code = f.read()
+    if os.path.exists(header_path):
+        with open(header_path, encoding="utf-8") as f:
+            header = f.read()
+    if os.path.exists(footer_path):
+        with open(footer_path, encoding="utf-8") as f:
+            footer = f.read()
+    return header, footer
 
-    # Geçici dosyada çalıştır
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".py", mode="w", encoding="utf-8") as temp_script:
-        temp_script.write(script_code)
-        temp_script_path = temp_script.name
+async def execute_python_code(code: str) -> dict[str, Any]:
+    if not code.strip():
+        return {"success": False, "error": "No code provided", "stdout": "", "stderr": "", "json": None}
+
+    code=replace_libname(code)
+    
+    header, footer = read_injectable_code()
+    full_code = header + "\n" + code + "\n" + footer
 
     try:
-        result = subprocess.run(
-            [sys.executable, temp_script_path],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            env=env
-        )
-        print(result.stdout)
-    finally:
-        os.unlink(temp_script_path)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            temp_script_path = os.path.join(tmpdir, "user_script.py")
+            with open(temp_script_path, "w", encoding="utf-8") as temp_script:
+                temp_script.write(full_code)
 
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print(f"Kullanım: {sys.argv[0]} <script_path.py>")
-        sys.exit(1)
-    run_python_script(sys.argv[1])
+            result = subprocess.run(
+                [sys.executable, temp_script_path],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=120
+            )
+
+            stdout = result.stdout.strip()
+            logs = result.stderr.strip()
+
+            # Attempt to parse JSON from stdout (footer logic will write the RESULT as JSON)
+            try:
+                json_output = json.loads(stdout) if stdout else None
+            except Exception:
+                json_output = None
+
+            if json_output is not None:
+                return {
+                    "success": True if "error" not in json_output else False,
+                    "result": json_output,
+                    "logs": logs,
+                }
+
+            return {
+                "success": False,
+                "logs": logs,
+                "stdout": stdout
+            }
+
+    except subprocess.TimeoutExpired:
+        return {"success": False, "error": "Script execution timed out", "logs": ""}
+    except Exception as e:
+        return {"success": False, "exception": str(e), "logs": logs if 'logs' in locals() else ''}
+    
+

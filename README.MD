@@ -1,80 +1,82 @@
-Absolutely! Here’s a clear and concise README.md in English for your project, explaining the structure and purpose of each file, how to use the patch, and how to run scripts.
+# Python Script Executor
 
-⸻
+This project provides a secure way to execute user-provided Python code in an isolated environment using temporary files. It injects custom header and footer code into the user script and handles JSON output parsing. Additionally, it rewrites any usage of the `playwright` library to use a custom `patchright` module instead.
 
-Playwright Chrome Path/User Data Dir Patch Example
+## Features
 
-This repository demonstrates how to patch Playwright (via patchright) to automatically set the Chrome executable path and user data directory from environment variables. This approach makes it easy to control which Chrome binary and profile your scripts use, without changing your source code.
+* Executes arbitrary Python code securely.
+* Injects custom `header.py` and `footer.py` content.
+* Replaces `playwright` references with `patchright`.
+* Parses JSON output from `stdout`.
+* Captures logs and handles errors gracefully.
+* Supports execution timeout (default: 120 seconds).
 
-Overview
-	•	Persistent & Stateless Example Scripts:
-Shows how to use Playwright (via patchright) for both persistent (profile) and stateless browser automation.
-	•	Patch Module:
-playwright_patch.py monkey-patches Playwright to pick up CHROME_PATH and USER_DATA_DIR from environment variables.
-	•	Runner Script:
-runner.py runs any Python script, making sure your patch and environment variables are in effect.
-	•	Environment Configuration:
-Uses .env for environment variable management.
-	•	Automatic Patching:
-sitecustomize.py ensures the patch is always applied, no matter how you run your scripts.
+## Installation
 
-Files
-	•	persistent_browser_example.py
-Example using a persistent context (profile).
-	•	stateless_browser_example.py
-Example using a stateless browser.
-	•	playwright_patch.py
-Patches Playwright’s launch methods to use environment variables.
-	•	sitecustomize.py
-Ensures the patch is applied on interpreter startup.
-	•	runner.py
-Loads .env, ensures patching, and runs the target Python script in a subprocess.
-	•	.env
-(Not included here; create yourself.) Holds CHROME_PATH and USER_DATA_DIR.
+```bash
+git clone <repository-url>
+cd <repository-folder>
+```
 
-Setup
-	1.	Clone this repo and install dependencies:
+**Python version required:** Python 3.7+
 
-pip install patchright python-dotenv beautifulsoup4
+## Usage
 
+Call the function asynchronously:
 
-	2.	Create a .env file in your project root:
+```python
+import asyncio
 
-CHROME_PATH=/path/to/your/chrome
-USER_DATA_DIR=/path/to/your/chrome/profile
+code = """
+print("Hello from user code!")
+"""
 
-	•	CHROME_PATH: Path to your Chrome/Chromium executable
-	•	USER_DATA_DIR: Path to the user data directory (profile) for persistent context
+result = asyncio.run(execute_python_code(code))
+print(result)
+```
 
-	3.	(Optional) Place sitecustomize.py in your PYTHONPATH
-This ensures the patch is always applied, even if you run scripts directly.
+## Functions
 
-Usage
+### `replace_libname(code: str) -> str`
 
-To run a script with patching and environment variables:
+Replaces any usage of `playwright` with `patchright` in the provided code string.
 
-python runner.py persistent_browser_example.py
+### `read_injectable_code() -> tuple[str, str]`
 
-or
+Reads content from `inject/header.py` and `inject/footer.py` to be prepended/appended to the user code.
 
-python runner.py stateless_browser_example.py
+### `execute_python_code(code: str) -> dict[str, Any]`
 
-	•	The runner ensures .env is loaded and the patch is active.
-	•	The persistent example will use the Chrome profile defined by USER_DATA_DIR.
+Executes the user-provided Python code with injected header/footer. Returns output, logs, and parsed JSON if available.
 
-Direct usage (if sitecustomize.py is on your PYTHONPATH):
+## Inject Folder
 
-python persistent_browser_example.py
+The `inject` folder should contain:
 
-How it Works
-	•	The patch in playwright_patch.py modifies Playwright’s browser launch methods:
-	•	Always uses CHROME_PATH if set.
-	•	Always uses USER_DATA_DIR for persistent contexts.
-	•	sitecustomize.py imports the patch module automatically on Python startup.
-	•	runner.py loads the environment and runs your script in an isolated process.
+```text
+inject/
+├── header.py
+└── footer.py
+```
 
-Notes
-	•	This patch is designed for patchright (a wrapper/fork of Playwright).
-	•	If you use the official Playwright, adapt imports as needed.
-	•	Ensure your specified Chrome and user data directory exist and are accessible.
+Example:
+
+```python
+# header.py
+print("Header started")
+
+# footer.py
+import json
+print(json.dumps({"status": "success"}))
+```
+
+## Error Handling
+
+* If no code is provided: `"No code provided"`
+* On timeout: `"Script execution timed out"`
+* If `stdout` is not valid JSON: returns raw output and logs.
+
+## License
+
+MIT License
 

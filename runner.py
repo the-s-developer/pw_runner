@@ -9,11 +9,11 @@ import re
 
 def replace_libname(code: str) -> str:
     # playwright. → patchright.
-    code = code.replace("playwright.", "patchright.")
+    #code = code.replace("playwright.", "patchright.")
     # import playwright → import patchright
-    code = re.sub(r'\bimport\s+playwright\b', 'import patchright', code)
+    #code = re.sub(r'\bimport\s+playwright\b', 'import patchright', code)
     # from playwright → from patchright
-    code = re.sub(r'\bfrom\s+playwright\b', 'from patchright', code)
+    #code = re.sub(r'\bfrom\s+playwright\b', 'from patchright', code)
     return code
 
 
@@ -31,11 +31,16 @@ def read_injectable_code():
             footer = f.read()
     return header, footer
 
-async def execute_python_code(code: str) -> dict[str, Any]:
+async def execute_python_code(code: str, no_prints=True, max_count: int = None) -> dict[str, Any]:
     if not code.strip():
         return {"success": False, "error": "No code provided", "stdout": "", "stderr": "", "json": None}
 
+
     code=replace_libname(code)
+
+    if max_count is not None:
+        code = f"MAX_COUNT = {max_count}\n" + code
+
     
     header, footer = read_injectable_code()
     full_code = header + "\n" + code + "\n" + footer
@@ -54,31 +59,27 @@ async def execute_python_code(code: str) -> dict[str, Any]:
                 timeout=120
             )
 
-            stdout = result.stdout.strip()
+            data = result.stdout.strip()
             logs = result.stderr.strip()
 
-            # Attempt to parse JSON from stdout (footer logic will write the RESULT as JSON)
-            try:
-                json_output = json.loads(stdout) if stdout else None
-            except Exception:
-                json_output = None
+            if data:
+                try:
+                    data = json.loads(data)
+                except Exception:
+                    data = None
 
-            if json_output is not None:
-                return {
-                    "success": True if "error" not in json_output else False,
-                    "result": json_output,
-                    "logs": logs,
-                }
+            result={}
+            if data is not None:
+                 result["result"]= data
 
-            return {
-                "success": False,
-                "logs": logs,
-                "stdout": stdout
-            }
+            if no_prints==False:
+                result["logs"]= logs
+            
+            return result
 
     except subprocess.TimeoutExpired:
-        return {"success": False, "error": "Script execution timed out", "logs": ""}
+        return {"error": "Script execution timed out","logs": logs if 'logs' in locals() else ''}
     except Exception as e:
-        return {"success": False, "exception": str(e), "logs": logs if 'logs' in locals() else ''}
+        return {"exception": str(e), "logs": logs if 'logs' in locals() else ''}
     
 
